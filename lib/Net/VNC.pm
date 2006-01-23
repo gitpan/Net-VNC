@@ -6,7 +6,7 @@ use Crypt::DES;
 use Image::Imlib2;
 use IO::Socket::INET;
 __PACKAGE__->mk_accessors(qw(hostname password socket name width height));
-our $VERSION = '0.29';
+our $VERSION = '0.30';
 
 sub login {
     my $self     = shift;
@@ -14,9 +14,10 @@ sub login {
     my $socket   = IO::Socket::INET->new(
         PeerAddr => $hostname,
         PeerPort => '5900',
-        Proto    => 'tcp'
+        Proto    => 'tcp',
+        Timeout  => 15,
         )
-        || die "Error connecting to $hostname";
+        || die "Error connecting to $hostname: $!";
     $self->socket($socket);
 
     $socket->read( my $protocol_version, 12 );
@@ -301,20 +302,16 @@ computer. This module acts as a VNC client and communicates to a VNC
 server using the RFB protocol, allowing you to capture the screen of
 the remote computer.
 
+This module dies upon connection errors (with a timeout of 15 seconds)
+and protocol errors.
+
 =head1 METHODS
 
-=head2 capture
+=head2 new
 
-Captures the screen of the remote computer, returning an L<Image::Imlib2> object:
+The constructor. Given a hostname and a password returns a L<Net::VNC> object:
 
-  my $image = $vnc->capture;
-  $image->save("out.png");
-
-=head2 height
-
-Returns the height of the remote screen:
-
-  print $vnc->name . ": " . $vnc->width . ' x ' . $vnc->height . "\n";
+  my $vnc = Net::VNC->new({hostname => $hostname, password => $password});
 
 =head2 login
 
@@ -328,17 +325,24 @@ Returns the name of the remote computer:
 
   print $vnc->name . ": " . $vnc->width . ' x ' . $vnc->height . "\n";
 
-=head2 new
-
-The constructor. Given a hostname and a password returns a L<Net::VNC> object:
-
-  my $vnc = Net::VNC->new({hostname => $hostname, password => $password});
-
 =head2 width
 
 Returns the width of the remote screen:
 
-print $vnc->name . ": " . $vnc->width . ' x ' . $vnc->height . "\n";
+  print $vnc->name . ": " . $vnc->width . ' x ' . $vnc->height . "\n";
+
+=head2 height
+
+Returns the height of the remote screen:
+
+  print $vnc->name . ": " . $vnc->width . ' x ' . $vnc->height . "\n";
+
+=head2 capture
+
+Captures the screen of the remote computer, returning an L<Image::Imlib2> object:
+
+  my $image = $vnc->capture;
+  $image->save("out.png");
 
 =head1 AUTHOR
 

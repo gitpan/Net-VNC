@@ -2,15 +2,15 @@
 use ExtUtils::MakeMaker;
 WriteMakefile
 (
-          'PL_FILES' => {},
-          'INSTALLDIRS' => 'site',
           'NAME' => 'Net::VNC',
           'VERSION_FROM' => 'lib/Net/VNC.pm',
           'PREREQ_PM' => {
-                           'Test::More' => '0',
+                           'Class::Accessor::Fast' => '0',
                            'Crypt::DES' => '0',
                            'Image::Imlib2' => '0',
-                           'Class::Accessor::Fast' => '0'
-                         }
+                           'Test::More' => '0'
+                         },
+          'INSTALLDIRS' => 'site',
+          'PL_FILES' => {}
         )
 ;

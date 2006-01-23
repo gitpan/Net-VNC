@@ -1,4 +1,10 @@
 Revision history for Perl module Net::VNC:
 
+0.30 Mon Jan 23 10:12:05 GMT 2006
+        - die with a more accurate reason if there was an error
+          connecting
+        - drop the connection timeout to 15 seconds
+        - reordered documentation to try and confuse Leo less
+
 0.29 Thu Jan 19 15:56:05 GMT 2006
         - first release

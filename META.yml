@@ -1,17 +1,8 @@
----
+--- #YAML:1.0
 name: Net-VNC
-version: 0.29
+version: 0.30
 author:
   - Leon Brocard acme@astray.com
 abstract: A simple VNC client
 license: perl
-requires:
-  Class::Accessor::Fast: 0
-  Crypt::DES: 0
-  Image::Imlib2: 0
-  Test::More: 0
-provides:
-  Net::VNC:
-    file: lib/Net/VNC.pm
-    version: 0.29
-generated_by: Module::Build version 0.26
+generated_by: Module::Build version 0.2611, without YAML.pm

@@ -19,18 +19,15 @@ DESCRIPTION
     server using the RFB protocol, allowing you to capture the screen of the
     remote computer.
 
+    This module dies upon connection errors (with a timeout of 15 seconds)
+    and protocol errors.
+
 METHODS
-  capture
-    Captures the screen of the remote computer, returning an Image::Imlib2
+  new
+    The constructor. Given a hostname and a password returns a Net::VNC
     object:
 
-      my $image = $vnc->capture;
-      $image->save("out.png");
-
-  height
-    Returns the height of the remote screen:
-
-      print $vnc->name . ": " . $vnc->width . ' x ' . $vnc->height . "\n";
+      my $vnc = Net::VNC->new({hostname => $hostname, password => $password});
 
   login
     Logs into the remote computer:
@@ -42,16 +39,22 @@ METHODS
 
       print $vnc->name . ": " . $vnc->width . ' x ' . $vnc->height . "\n";
 
-  new
-    The constructor. Given a hostname and a password returns a Net::VNC
-    object:
-
-      my $vnc = Net::VNC->new({hostname => $hostname, password => $password});
-
   width
     Returns the width of the remote screen:
 
-    print $vnc->name . ": " . $vnc->width . ' x ' . $vnc->height . "\n";
+      print $vnc->name . ": " . $vnc->width . ' x ' . $vnc->height . "\n";
+
+  height
+    Returns the height of the remote screen:
+
+      print $vnc->name . ": " . $vnc->width . ' x ' . $vnc->height . "\n";
+
+  capture
+    Captures the screen of the remote computer, returning an Image::Imlib2
+    object:
+
+      my $image = $vnc->capture;
+      $image->save("out.png");
 
 AUTHOR
     Leon Brocard acme@astray.com
