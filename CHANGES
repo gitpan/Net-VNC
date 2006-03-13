@@ -1,5 +1,11 @@
 Revision history for Perl module Net::VNC:
 
+0.31 Mon Mar 13 20:05:27 GMT 2006
+        - 24-bit truecolour support
+        - non-authenticated login
+        - incremental update
+        - all provided by Chris Dolan
+
 0.30 Mon Jan 23 10:12:05 GMT 2006
         - die with a more accurate reason if there was an error
           connecting

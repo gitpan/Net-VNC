@@ -11,6 +11,9 @@ WriteMakefile
                            'Test::More' => '0'
                          },
           'INSTALLDIRS' => 'site',
+          'EXE_FILES' => [
+                           'bin/vnccapture'
+                         ],
           'PL_FILES' => {}
         )
 ;

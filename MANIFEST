@@ -1,3 +1,4 @@
+bin/vnccapture
 Build.PL
 CHANGES
 lib/Net/VNC.pm
@@ -7,3 +8,4 @@ META.yml
 README
 t/pod.t
 t/pod_coverage.t
+
