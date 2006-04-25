@@ -12,6 +12,7 @@ my %opts = (
     port       => 5900,
     depth      => 24,
     type       => 'png',
+    cursor     => 0,
     verbose    => 0,
     help       => 0,
     version    => 0,
@@ -23,6 +24,7 @@ GetOptions('P|password=s' => \$opts{password},
            'p|port=s'     => \$opts{port},
            'd|depth=s'    => \$opts{depth},
            't|type=s'     => \$opts{type},
+           'C|cursor'     => \$opts{cursor},
            'v|verbose'    => \$opts{verbose},
            'h|help'       => \$opts{help},
            'V|version'    => \$opts{version},
@@ -43,6 +45,8 @@ my $vnc = Net::VNC->new({hostname => $opts{host},
 $vnc->depth($opts{depth});
 $vnc->login();
 print "Logged in\n" if ($opts{verbose});
+
+$vnc->hide_cursor(!$opts{cursor});
 
 for my $n (1..$end) {
     my $filename = sprintf 'snapshot%04d.%s', $n, $opts{type};
@@ -66,6 +70,7 @@ vnccapture - Capture a screenshot via VNC
    -p --port=num       TCP port for VNC server (default: 5900)
    -d --depth=8|16|24  screen depth for capture (default: 24)
    -t --type=ext       image type for output (default: 'png')
+   -C --cursor         include the mouse cursor in the image
    -v --verbose        print status and diagnostics to STDOUT
    -h --help           verbose help message
    -V --version        print the Net::VNC version
@@ -82,7 +87,9 @@ support.
 
 =head1 SEE ALSO
 
-Net::VNC
+L<Net::VNC>
+
+L<Image::Imlib2>
 
 =head1 AUTHOR
 

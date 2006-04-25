@@ -8,11 +8,12 @@ use IO::Socket::INET;
 use bytes;
 __PACKAGE__->mk_accessors(
     qw(hostname port password socket name width height depth save_bandwidth
-        _pixinfo _colourmap _framebuffer _rfb_version
-        _bpp _true_colour _big_endian
+        hide_cursor
+        _pixinfo _colourmap _framebuffer _cursordata _rfb_version
+        _bpp _true_colour _big_endian _image_format
         )
 );
-our $VERSION = '0.31';
+our $VERSION = '0.32';
 
 my $MAX_PROTOCOL_VERSION = 'RFB 003.008' . chr(0x0a);  # Max version supported
 
@@ -62,6 +63,85 @@ my %supported_depths = (
     },
 );
 
+my @encodings = (
+    # These ones are defined in rfbproto.pdf
+    {   num       => 0,
+        name      => 'Raw',
+        supported => 1,
+    },
+    {   num       => 1,
+        name      => 'CopyRect',
+        supported => 1,
+    },
+    {   num       => 2,
+        name      => 'RRE',
+        supported => 1,
+    },
+    {   num       => 4,
+        name      => 'CoRRE',
+        supported => 1,
+    },
+    {   num       => 5,
+        name      => 'Hextile',
+        supported => 1,
+        bandwidth => 1,
+    },
+    {   num       => 16,
+        name      => 'ZRLE',
+        supported => 0,
+        bandwidth => 1,
+    },
+    {   num       => -239,
+        name      => 'Cursor',
+        supported => 1,
+        cursor    => 1,
+    },
+    {   num       => -223,
+        name      => 'DesktopSize',
+        supported => 0,
+    },
+
+    # Learned about these from cvs://cotvnc.sf.net/cotvnc/Source/rfbproto.h
+    # None of them are currently used
+    map( {
+    {   num       => -256+$_,
+        name      => 'CompressLevel'.$_,
+        supported => 0,
+        compress  => 1,
+    } } 0 .. 9 ),
+    {   num       => -240,
+        name      => 'XCursor',
+        supported => 0,
+        cursor    => 1,
+    },
+    {   num       => -224,
+        name      => 'LastRect',
+        supported => 0,
+    },
+    map( {
+    {   num       => -32+$_,
+        name      => 'QualityLevel'.$_,
+        supported => 0,
+        quality   => 1,
+    } } 0 .. 9 ),
+
+    # Learned about this one from pyvnc2swf/rfb.py, but I don't understand where it comes from
+    # It doesn't seem to be documented in CotVNC or VNC 4.1.1 source code
+    {   num       => -232,
+        name      => 'CursorPos',
+        supported => 1,
+        cursor    => 1,
+    },
+);
+
+sub list_encodings
+{
+    my $pkg_or_self = shift;
+
+    my %encmap = map {$_->{num} => $_->{name}} @encodings;
+    return %encmap;
+}
+
 sub login {
     my $self     = shift;
     my $hostname = $self->hostname;
@@ -70,9 +150,9 @@ sub login {
         PeerAddr => $hostname || 'localhost',
         PeerPort => $port     || '5900',
         Proto    => 'tcp',
-        Timeout  => 15,
         )
         || die "Error connecting to $hostname: $!";
+    $socket->timeout(15);
     $self->socket($socket);
 
     eval {
@@ -338,36 +418,36 @@ sub _server_initialization {
     );
 
     # set encodings
-    if ( $self->save_bandwidth ) {
-        $socket->print(
-            pack(
-                'CCnNNNN',
-                2,    # message_type
-                0,    # padding
-                4,    # number_of_encodings
-                1,    # CopyRect
-                5,    # Hextile
-                2,    # RRE
-                0,    # Raw
-            )
-        );
-    } else {
-        $socket->print(
-            pack(
-                'CCnNNN',
-                2,    # message_type
-                0,    # padding
-                3,    # number_of_encodings
-                1,    # CopyRect
-                2,    # RRE
-                0,    # Raw
-            )
-        );
+
+    my @encs = grep { $_->{supported} } @encodings;
+    # Prefer the higher-numbered encodings
+    @encs = reverse sort { $a->{num} <=> $b->{num} } @encs;
+
+    if ( !$self->save_bandwidth ) {
+        @encs = grep { !$_->{bandwidth} } @encs;
+    }
+    if ( $self->hide_cursor ) {
+        @encs = grep { !$_->{cursor} } @encs;
     }
 
-    # Disabled encoding:
-    # pack pattern = 'i'
-    #4294967057,    # cursor pseudo-encoding
+    $socket->print(
+        pack(
+            'CCn',
+            2,               # message_type
+            0,               # padding
+            scalar @encs,    # number_of_encodings
+        )
+    );
+    for my $enc (@encs) {
+
+        # Make a big-endian, signed 32-bit value
+        # method:
+        #   pack as own-endian, signed      e.g. -239
+        #   unpack as own-endian, unsigned  e.g. 4294967057
+        #   pack as big-endian
+        my $num = pack 'N', unpack 'L', pack 'l', $enc->{num};
+        $socket->print($num);
+    }
 }
 
 sub capture {
@@ -381,7 +461,28 @@ sub capture {
         #    warn $message_type;
     }
 
-    return $self->_framebuffer;
+    return $self->_image_plus_cursor;
+}
+
+sub _image_plus_cursor
+{
+    my $self = shift;
+
+    my $image = $self->_framebuffer;
+    my $cursor = $self->_cursordata;
+    if (!$self->hide_cursor && $cursor &&
+        $cursor->{image} && defined $cursor->{x})
+    {
+        #$cursor->{image}->save('cursor.png'); # temporary -- debugging
+        $image = $image->clone();  # make a duplicate so we can overlay the cursor
+        $image->blend(
+            $cursor->{image},
+            1, # don't modify destination alpha
+            0, 0, $cursor->{width}, $cursor->{height}, # source dimensions
+            $cursor->{x}, $cursor->{y}, $cursor->{width}, $cursor->{height}, # destination dimensions
+        );
+    }
+    return $image;
 }
 
 sub _send_pointer_event {
@@ -432,6 +533,8 @@ sub _receive_message {
           !defined $message_type ? die 'bad message type received'
         : $message_type == 0     ? $self->_receive_update()
         : $message_type == 1     ? $self->_receive_colour_map()
+        : $message_type == 2     ? $self->_receive_bell()
+        : $message_type == 3     ? $self->_receive_cut_text()
         : die 'unsupported message type received';
 
     return $message_type;
@@ -444,6 +547,9 @@ sub _receive_update {
     if ( !$image ) {
         $self->_framebuffer( $image
                 = Image::Imlib2->new( $self->width, $self->height ) );
+        if ( $self->_image_format ) {
+            $image->image_set_format( $self->_image_format );
+        }
     }
 
     my $socket = $self->socket;
@@ -452,31 +558,20 @@ sub _receive_update {
 
     #    warn $number_of_rectangles;
 
-    my $colours         = $self->_colourmap;
-    my $depth           = $self->depth;
-    my $bpp             = $self->_bpp;
-    my $bytes_per_pixel = $bpp / 8;
-    my $depth_bytes     = $depth / 8;
-    my $pixinfo         = $self->_pixinfo;
-    my $format;
+    my $depth = $self->depth;
 
-    die 'unsupported bits-per-pixel' if ( $bpp % 8 != 0 );
-    die 'unsupported depth'          if ( $depth % 8 != 0 );
-
-    if ($colours) {
-        if ( $depth != 8 ) {
-            die 'Indexed colour only supported for 8 bit displays';
-        }
-    } else {
-        $format =
-              $bpp == 32 ? 'L'
-            : $bpp == 16 ? 'S'
-            : die 'Unsupported bits-per-pixel value';
-    }
+    my $read_and_set_colour =
+          $depth == 8  ? \&_read_and_set_colour_8
+        : $depth == 16 ? \&_read_and_set_colour_16
+        : $depth == 24 ? \&_read_and_set_colour_24
+        : die 'unsupported depth';
 
     foreach ( 1 .. $number_of_rectangles ) {
         $socket->read( my $data, 12 ) || die 'unexpected end of data';
         my ( $x, $y, $w, $h, $encoding_type ) = unpack 'nnnnN', $data;
+
+        # unsigned -> signed conversion
+        $encoding_type = unpack 'l', pack 'L', $encoding_type;
 
         #        warn "$x,$y $w x $h $encoding_type";
 
@@ -485,7 +580,7 @@ sub _receive_update {
 
             for my $py ( $y .. $y + $h - 1 ) {
                 for my $px ( $x .. $x + $w - 1 ) {
-                    $self->_read_and_set_colour();
+                    $self->$read_and_set_colour();
                     $image->draw_point( $px, $py );
                 }
             }
@@ -499,22 +594,26 @@ sub _receive_update {
             my $copy = $image->crop( $srcx, $srcy, $w, $h );
             $image->blend( $copy, 0, 0, 0, $w, $h, $x, $y, $w, $h );
 
-            ### RRE encoding ###
-        } elsif ( $encoding_type == 2 ) {
+            ### RRE and CoRRE encodings ###
+        } elsif ( $encoding_type == 2 || $encoding_type == 4 ) {
 
             $socket->read( my $num_sub_rects, 4 )
                 || die 'unexpected end of data';
             $num_sub_rects = unpack 'N', $num_sub_rects;
 
-            $self->_read_and_set_colour();
+            $self->$read_and_set_colour();
             $image->fill_rectangle( $x, $y, $w, $h );
+
+            # RRE is U16, CoRRE is U8
+            my $geombytes = $encoding_type == 2 ? 8      : 4;
+            my $format    = $encoding_type == 2 ? 'nnnn' : 'CCCC';
 
             for my $i ( 1 .. $num_sub_rects ) {
 
-                $self->_read_and_set_colour();
-                $socket->read( my $subrect, 8 )
+                $self->$read_and_set_colour();
+                $socket->read( my $subrect, $geombytes )
                     || die 'unexpected end of data';
-                my ( $sx, $sy, $sw, $sh ) = unpack 'nnnn', $subrect;
+                my ( $sx, $sy, $sw, $sh ) = unpack $format, $subrect;
                 $image->fill_rectangle( $x + $sx, $y + $sy, $sw, $sh );
 
             }
@@ -526,6 +625,8 @@ sub _receive_update {
             my $maxy = $y + $h;
             my $background;
             my $foreground;
+
+            # Step over 16x16 tiles in the target rectangle
             for ( my $ry = $y; $ry < $maxy; $ry += 16 ) {
                 my $rh = $maxy - $ry > 16 ? 16 : $maxy - $ry;
                 for ( my $rx = $x; $rx < $maxx; $rx += 16 ) {
@@ -537,7 +638,7 @@ sub _receive_update {
                     if ( $mask & 0x1 ) {    # Raw tile
                         for my $py ( $ry .. $ry + $rh - 1 ) {
                             for my $px ( $rx .. $rx + $rw - 1 ) {
-                                $self->_read_and_set_colour();
+                                $self->$read_and_set_colour();
                                 $image->draw_point( $px, $py );
                             }
                         }
@@ -545,10 +646,10 @@ sub _receive_update {
                     } else {
 
                         if ( $mask & 0x2 ) {    # background set
-                            $background = $self->_read_and_set_colour();
+                            $background = $self->$read_and_set_colour();
                         }
                         if ( $mask & 0x4 ) {    # foreground set
-                            $foreground = $self->_read_and_set_colour();
+                            $foreground = $self->$read_and_set_colour();
                         }
                         if ( $mask & 0x8 ) {    # has subrects
 
@@ -561,7 +662,7 @@ sub _receive_update {
                             }
                             for my $i ( 1 .. $nsubrects ) {
                                 if ( $mask & 0x10 ) { # use per-subrect colour
-                                    $self->_read_and_set_colour();
+                                    $self->$read_and_set_colour();
                                 }
                                 $socket->read( my $pos, 1 )
                                     || die 'unexpected end of data';
@@ -585,6 +686,64 @@ sub _receive_update {
                 }
             }
 
+            ### Cursor ###
+        } elsif ( $encoding_type == -239 ) {
+           
+            my $cursordata = $self->_cursordata;
+            if ( !$cursordata ) {
+                $self->_cursordata( $cursordata = { } );
+            }
+            $cursordata->{image}    = Image::Imlib2->new( $w, $h );
+            $cursordata->{hotspotx} = $x;
+            $cursordata->{hotspoty} = $y;
+            $cursordata->{width}    = $w;
+            $cursordata->{height}   = $h;
+
+            my $cursor = $cursordata->{image} || die 'Failed to create cursor buffer';
+            $cursor->has_alpha(1);
+
+            my @pixbuf;
+            for my $i ( 1 .. $w*$h ) {
+                push @pixbuf, $self->$read_and_set_colour();
+            }
+            my $masksize = int( ( $w + 7 ) / 8 ) * $h;
+            my $maskrowsize = int( ( $w + 7 ) / 8 ) * 8;
+            $socket->read( my $mask, $masksize ) || die 'unexpected end of data';
+            $mask = unpack 'B*', $mask;
+            #print "masksize: $masksize\n";
+            #print "maskrowsize: $maskrowsize\n";
+            #print "mask: $mask\n";
+
+            #open my $fh, '>', $ENV{HOME}.'/Desktop/cursor.txt';
+            for my $cy (0 .. $h-1) {
+                for my $cx (0 .. $w-1) {
+                    my $pixel = shift @pixbuf;
+                    $pixel || die 'not enough pixels';
+                    if (substr($mask, $cx + $cy*$maskrowsize, 1)) {
+                        $pixel->[3] = 255;
+                    } else {
+                        @{$pixel} = (0, 0, 0, 0);
+                    }
+                    #print "$cx, $cy: @$pixel\n";
+                    #print $fh "$cx, $cy: @$pixel\n";
+                    $cursor->set_colour( @{$pixel} );
+                    $cursor->draw_point( $cx, $cy );
+                }
+            }
+            #$cursor->save('vnccursor.png');
+            #print "wrote cursor\n";
+
+            ### CursorPos ###
+        } elsif ( $encoding_type == -232 ) {
+
+           my $cursordata = $self->_cursordata;
+           if ( !$cursordata ) {
+              $self->_cursordata( $cursordata = { } );
+           }
+           $cursordata->{x} = $x;
+           $cursordata->{y} = $y;
+           #print "Cursor pos: $x, $y\n";
+
         } else {
             die 'unsupported update encoding ' . $encoding_type;
 
@@ -593,6 +752,58 @@ sub _receive_update {
 
     return 1;
 }
+
+sub _read_and_set_colour_8 {
+    my $self = shift;
+
+    $self->socket->read( my $pixel, 1 ) || die 'unexpected end of data';
+
+    my $colours = $self->_colourmap;
+    my $index   = unpack( 'C', $pixel );
+    my $colour  = $colours->[$index];
+    my @colour  = ( $colour->{r}, $colour->{g}, $colour->{b}, 255 );
+    $self->_framebuffer->set_colour(@colour);
+
+    return \@colour;
+}
+
+sub _read_and_set_colour_16 {
+    my $self = shift;
+
+    $self->socket->read( my $pixel, 2 ) || die 'unexpected end of data';
+    my $colour = unpack 'S', $pixel;
+    my @colour = (
+        ($colour >> 10 & 31) << 3,
+        ($colour >>  5 & 31) << 3,
+        ($colour       & 31) << 3,
+        255
+    );
+    $self->_framebuffer->set_colour(@colour);
+
+    return \@colour;
+}
+
+sub _read_and_set_colour_24 {
+    my $self = shift;
+
+    $self->socket->read( my $pixel, 4 ) || die 'unexpected end of data';
+    my $colour = unpack 'L', $pixel;
+    my @colour = (
+        $colour >> 16 & 255,
+        $colour >>  8 & 255,
+        $colour       & 255,
+        255,
+    );
+    $self->_framebuffer->set_colour(@colour);
+
+    return \@colour;
+}
+
+
+# The following is the full version that supports all 8, 16, and 32
+# bpp and arbitrary pixel formats.  This version is currently unused
+# because the implementation is limited to the specific settings that
+# are implemented in the faster functions declared above.
 
 sub _read_and_set_colour {
     my $self  = shift;
@@ -662,6 +873,26 @@ sub _receive_colour_map {
         $colours[$i] = { r => $r >> 8, g => $g >> 8, b => $b >> 8 };
     }
     $self->_colourmap( \@colours );
+    return 1;
+}
+
+sub _receive_bell {
+    my $self = shift;
+
+    # And discard it...
+
+    return 1;
+}
+
+sub _receive_cut_text {
+    my $self = shift;
+
+    my $socket = $self->socket;
+    $socket->read( my $cut_msg, 7 ) || die 'unexpected end of data';
+    my $cut_length = unpack 'xxxN', $cut_msg;
+    $socket->read( my $cut_string, $cut_length ) || die 'unexpected end of data';
+    # And discard it...
+
     return 1;
 }
 
@@ -765,6 +996,12 @@ Accepts a boolean, defaults to false.  Specifies whether to use more
 CPU-intensive algorithms to compress the VNC datastream.  LAN or
 localhost connections may prefer to leave this false.  This property
 should be set before the call to login().
+
+=head2 list_encodings
+
+Returns a list of encoding number/encoding name pairs.  This can be used as a class method like so:
+
+   my %encodings = Net::VNC->list_encodings();
 
 =head1 BUGS AND LIMITATIONS
 

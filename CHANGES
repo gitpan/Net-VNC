@@ -1,5 +1,18 @@
 Revision history for Perl module Net::VNC:
 
+0.32 Tue Apr 25 20:03:09 BST 2006
+  - many patches from Chris Dolan:
+  - Added optional support for the mouse cursor
+  - Support for CoRRE encoding
+  - performance enhancement: split out the 8/16/24 bit support into
+    their own modes
+  - rearchitected the encoding system: list all known, but flag them
+    as supported or not
+  - ... this will simplify the addition of new encodings
+  - ... this allows enabling/disabling classes of encodings (like cursor)
+  - bugfix for signedness of encoding type
+  - added skeletal support for the remaining server messages: cut-text and bell
+
 0.31 Mon Mar 13 20:05:27 GMT 2006
         - 24-bit truecolour support
         - non-authenticated login
