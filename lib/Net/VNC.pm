@@ -8,14 +8,21 @@ use IO::Socket::INET;
 use bytes;
 __PACKAGE__->mk_accessors(
     qw(hostname port password socket name width height depth save_bandwidth
-        hide_cursor
+        hide_cursor server_endian
         _pixinfo _colourmap _framebuffer _cursordata _rfb_version
         _bpp _true_colour _big_endian _image_format
         )
 );
-our $VERSION = '0.32';
+our $VERSION = '0.33';
 
 my $MAX_PROTOCOL_VERSION = 'RFB 003.008' . chr(0x0a);  # Max version supported
+
+# Precompute booleans for specific Image::Imlib2 features
+my $CAN_CREATE_RAW_IMAGE = Image::Imlib2->can('new_using_data');
+my $CAN_CHANGE_BLEND = Image::Imlib2->can('will_blend');
+
+# This line comes from perlport.pod
+my $AM_BIG_ENDIAN = unpack( 'h*', pack( 's', 1 ) ) =~ /01/ ? 1 : 0;
 
 # The numbers in the hashes below were acquired from the VNC source code
 my %supported_depths = (
@@ -373,9 +380,6 @@ sub _server_initialization {
         }
     }
 
-    # This line comes from perlport.pod
-    my $am_big_endian = unpack( 'h*', pack( 's', 1 ) ) =~ /01/;
-
     if ( !$self->width ) {
         $self->width($framebuffer_width);
     }
@@ -385,7 +389,7 @@ sub _server_initialization {
     $self->_pixinfo( \%pixinfo );
     $self->_bpp( $supported_depths{ $self->depth }->{bpp} );
     $self->_true_colour( $supported_depths{ $self->depth }->{true_colour} );
-    $self->_big_endian($am_big_endian);
+    $self->_big_endian( $self->server_endian ? $big_endian_flag : $AM_BIG_ENDIAN );
 
     $socket->read( my $name_string, $name_length )
         || die 'unexpected end of data';
@@ -529,6 +533,7 @@ sub _receive_message {
 
     #    warn $message_type;
 
+    # This result is unused.  It's meaning is different for the different methods
     my $result =
           !defined $message_type ? die 'bad message type received'
         : $message_type == 0     ? $self->_receive_update()
@@ -550,6 +555,11 @@ sub _receive_update {
         if ( $self->_image_format ) {
             $image->image_set_format( $self->_image_format );
         }
+        if ( $CAN_CREATE_RAW_IMAGE ) {
+            # We're going to be splatting pixels, so make sure every pixel is opaque
+            $image->set_colour( 0, 0, 0, 255 );
+            $image->fill_rectangle( 0, 0, $self->width, $self->height );
+        }
     }
 
     my $socket = $self->socket;
@@ -560,10 +570,11 @@ sub _receive_update {
 
     my $depth = $self->depth;
 
+    my $big_endian = $self->_big_endian;
     my $read_and_set_colour =
-          $depth == 8  ? \&_read_and_set_colour_8
-        : $depth == 16 ? \&_read_and_set_colour_16
-        : $depth == 24 ? \&_read_and_set_colour_24
+          $depth == 24 ? ($big_endian ? \&_read_and_set_colour_24_be : \&_read_and_set_colour_24_le)
+        : $depth == 16 ? ($big_endian ? \&_read_and_set_colour_16_be : \&_read_and_set_colour_16_le)
+        : $depth == 8  ? \&_read_and_set_colour_8
         : die 'unsupported depth';
 
     foreach ( 1 .. $number_of_rectangles ) {
@@ -578,11 +589,24 @@ sub _receive_update {
         ### Raw encoding ###
         if ( $encoding_type == 0 ) {
 
-            for my $py ( $y .. $y + $h - 1 ) {
-                for my $px ( $x .. $x + $w - 1 ) {
-                    $self->$read_and_set_colour();
-                    $image->draw_point( $px, $py );
+            if ( $CAN_CREATE_RAW_IMAGE && $depth == 24
+		 && $AM_BIG_ENDIAN == $self->_big_endian ) {
+
+               # Performance boost: splat raw pixels into the image
+               $socket->read( my $data, $w * $h * 4 );
+               my $raw = Image::Imlib2->new_using_data( $w, $h, $data );
+               $raw->set_has_alpha( 0 );
+               $image->blend( $raw, 0, 0, 0, $w, $h, $x, $y, $w, $h );
+
+            } else {
+
+                for my $py ( $y .. $y + $h - 1 ) {
+                    for my $px ( $x .. $x + $w - 1 ) {
+                        $self->$read_and_set_colour();
+                        $image->draw_point( $px, $py );
+                    }
                 }
+
             }
 
             ### CopyRect encooding ###
@@ -715,13 +739,12 @@ sub _receive_update {
             #print "mask: $mask\n";
 
             #open my $fh, '>', $ENV{HOME}.'/Desktop/cursor.txt';
+            $cursor->will_blend( 0 ) if ( $CAN_CHANGE_BLEND );
             for my $cy (0 .. $h-1) {
                 for my $cx (0 .. $w-1) {
                     my $pixel = shift @pixbuf;
                     $pixel || die 'not enough pixels';
-                    if (substr($mask, $cx + $cy*$maskrowsize, 1)) {
-                        $pixel->[3] = 255;
-                    } else {
+                    if (!substr($mask, $cx + $cy*$maskrowsize, 1)) {
                         @{$pixel} = (0, 0, 0, 0);
                     }
                     #print "$cx, $cy: @$pixel\n";
@@ -730,6 +753,7 @@ sub _receive_update {
                     $cursor->draw_point( $cx, $cy );
                 }
             }
+            $cursor->will_blend( 1 ) if ( $CAN_CHANGE_BLEND );
             #$cursor->save('vnccursor.png');
             #print "wrote cursor\n";
 
@@ -750,7 +774,7 @@ sub _receive_update {
         }
     }
 
-    return 1;
+    return $number_of_rectangles;
 }
 
 sub _read_and_set_colour_8 {
@@ -767,11 +791,11 @@ sub _read_and_set_colour_8 {
     return \@colour;
 }
 
-sub _read_and_set_colour_16 {
+sub _read_and_set_colour_16_le {
     my $self = shift;
 
     $self->socket->read( my $pixel, 2 ) || die 'unexpected end of data';
-    my $colour = unpack 'S', $pixel;
+    my $colour = unpack 'v', $pixel;
     my @colour = (
         ($colour >> 10 & 31) << 3,
         ($colour >>  5 & 31) << 3,
@@ -783,11 +807,43 @@ sub _read_and_set_colour_16 {
     return \@colour;
 }
 
-sub _read_and_set_colour_24 {
+sub _read_and_set_colour_16_be {
+    my $self = shift;
+
+    $self->socket->read( my $pixel, 2 ) || die 'unexpected end of data';
+    my $colour = unpack 'n', $pixel;
+    my @colour = (
+        ($colour >> 10 & 31) << 3,
+        ($colour >>  5 & 31) << 3,
+        ($colour       & 31) << 3,
+        255
+    );
+    $self->_framebuffer->set_colour(@colour);
+
+    return \@colour;
+}
+
+sub _read_and_set_colour_24_le {
     my $self = shift;
 
     $self->socket->read( my $pixel, 4 ) || die 'unexpected end of data';
-    my $colour = unpack 'L', $pixel;
+    my $colour = unpack 'V', $pixel;
+    my @colour = (
+        $colour >> 16 & 255,
+        $colour >>  8 & 255,
+        $colour       & 255,
+        255,
+    );
+    $self->_framebuffer->set_colour(@colour);
+
+    return \@colour;
+}
+
+sub _read_and_set_colour_24_be {
+    my $self = shift;
+
+    $self->socket->read( my $pixel, 4 ) || die 'unexpected end of data';
+    my $colour = unpack 'N', $pixel;
     my @colour = (
         $colour >> 16 & 255,
         $colour >>  8 & 255,
@@ -801,9 +857,9 @@ sub _read_and_set_colour_24 {
 
 
 # The following is the full version that supports all 8, 16, and 32
-# bpp and arbitrary pixel formats.  This version is currently unused
-# because the implementation is limited to the specific settings that
-# are implemented in the faster functions declared above.
+# bpp and arbitrary pixel formats.  This version is only used when one
+# of the faster functions declared above cannot be used due to
+# specific VNC settings.
 
 sub _read_and_set_colour {
     my $self  = shift;
@@ -823,8 +879,8 @@ sub _read_and_set_colour {
     } else {           # true colour, depth is 24 or 16
         my $pixinfo = $self->_pixinfo;
         my $format  =
-              $bytes_per_pixel == 4 ? 'L'
-            : $bytes_per_pixel == 2 ? 'S'
+              $bytes_per_pixel == 4 ? ($self->_big_endian ? 'N' : 'V')
+            : $bytes_per_pixel == 2 ? ($self->_big_endian ? 'n' : 'v')
             : die 'Unsupported bits-per-pixel value';
         my $colour = unpack $format, $pixel;
         my $r = $colour >> $pixinfo->{red_shift} & $pixinfo->{red_max};

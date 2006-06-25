@@ -1,5 +1,8 @@
 Revision history for Perl module Net::VNC:
 
+0.33 Sun Jun 25 16:13:33 BST 2006
+  - fixed a few cross-endian bugs (thanks to Chris Dolan again!)
+
 0.32 Tue Apr 25 20:03:09 BST 2006
   - many patches from Chris Dolan:
   - Added optional support for the mouse cursor
