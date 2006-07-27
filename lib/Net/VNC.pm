@@ -13,7 +13,7 @@ __PACKAGE__->mk_accessors(
         _bpp _true_colour _big_endian _image_format
         )
 );
-our $VERSION = '0.33';
+our $VERSION = '0.34';
 
 my $MAX_PROTOCOL_VERSION = 'RFB 003.008' . chr(0x0a);  # Max version supported
 
@@ -712,7 +712,10 @@ sub _receive_update {
 
             ### Cursor ###
         } elsif ( $encoding_type == -239 ) {
-           
+
+            # realvnc 3.3 sends empty cursor messages, so skip
+            next unless $w || $h;
+            
             my $cursordata = $self->_cursordata;
             if ( !$cursordata ) {
                 $self->_cursordata( $cursordata = { } );
@@ -723,7 +726,7 @@ sub _receive_update {
             $cursordata->{width}    = $w;
             $cursordata->{height}   = $h;
 
-            my $cursor = $cursordata->{image} || die 'Failed to create cursor buffer';
+            my $cursor = $cursordata->{image} || die "Failed to create cursor buffer $w x $h";
             $cursor->has_alpha(1);
 
             my @pixbuf;
