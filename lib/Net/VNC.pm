@@ -13,7 +13,7 @@ __PACKAGE__->mk_accessors(
         _bpp _true_colour _big_endian _image_format
         )
 );
-our $VERSION = '0.34';
+our $VERSION = '0.35';
 
 my $MAX_PROTOCOL_VERSION = 'RFB 003.008' . chr(0x0a);  # Max version supported
 
@@ -595,7 +595,7 @@ sub _receive_update {
                # Performance boost: splat raw pixels into the image
                $socket->read( my $data, $w * $h * 4 );
                my $raw = Image::Imlib2->new_using_data( $w, $h, $data );
-               $raw->set_has_alpha( 0 );
+               $raw->has_alpha( 0 );
                $image->blend( $raw, 0, 0, 0, $w, $h, $x, $y, $w, $h );
 
             } else {

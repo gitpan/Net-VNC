@@ -1,5 +1,8 @@
 Revision history for Perl module Net::VNC:
 
+0.35 Fri Jul 28 11:41:23 BST 2006
+  - fix typo-d 'has_alpha' which breaks with recent Image::Imlib2
+
 0.34 Thu Jul 27 12:12:57 BST 2006
   - fixed failing cursor bug with realvnc 3.3
 
