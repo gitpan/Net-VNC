@@ -1,5 +1,8 @@
 Revision history for Perl module Net::VNC:
 
+0.36 Fri Jun 29 19:58:51 BST 2007
+  - make vnccapture's outfile option work (patch by Owen Crow)
+
 0.35 Fri Jul 28 11:41:23 BST 2006
   - fix typo-d 'has_alpha' which breaks with recent Image::Imlib2
 
