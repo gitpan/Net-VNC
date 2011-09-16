@@ -35,7 +35,9 @@ METHODS
 
       my $vnc = Net::VNC->new({hostname => $hostname, password => $password});
 
-    Optionally, you can also specify a port, which defaults to 5900.
+    Optionally, you can also specify a port, which defaults to 5900. For ARD
+    (Apple Remote Desktop) authentication you must also specify a username.
+    You must also install Crypt::GCrypt::MPI and Crypt::Random.
 
   login
     Logs into the remote computer:
@@ -161,6 +163,10 @@ AUTHORS
     Leon Brocard acme@astray.com
 
     Chris Dolan clotho@cpan.org
+
+    Apple Remote Desktop authentication based on LibVNCServer
+
+    Maurice Castro maurice@ipexchange.com.au
 
     Many thanks for Foxtons Ltd for giving Leon the opportunity to write the
     original version of this module.
