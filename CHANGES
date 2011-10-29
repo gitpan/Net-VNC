@@ -1,5 +1,8 @@
 Revision history for Perl module Net::VNC:
 
+0.40 Sat Oct 29 08:20:07 BST 2011
+  - Add pointer events (patch by Gugod)
+
 0.39 Fri Sep 16 13:56:21 BST 2011
   - Add Apple Remote Desktop authentication (patch by Maurice Castro)
 

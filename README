@@ -143,6 +143,22 @@ METHODS
 
       $vnc->send_key_event_string('Hello');
 
+  send_pointer_event( $button_mask, $x, $y )
+    Send pointer event (usually a mouse). This is used to move the pointer
+    or make clicks or drags.
+
+    It is easier to call the "mouse_move" or <mouse_click> methods instead.
+
+  mouse_move_to($x, $y)
+    Send the pointer to the given position. The cursor instantly jumps there
+    instead of smoothly moving to there.
+
+  mouse_click
+    Click on current pointer position.
+
+  mouse_right_click
+    Right-click on current pointer position.
+
 BUGS AND LIMITATIONS
   Bit depth
     We do not yet support 8-bit true-colour mode, which is commonly
